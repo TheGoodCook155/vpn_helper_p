@@ -287,6 +287,10 @@ public class Main {
                         int responseCode = -1;
 
                         for (int j = 0; j < bannedWebsites.size(); j++){
+                            
+                            if (stopLoop[0] == true){
+                                break;
+                            }
 
                             BannedWebsite bannedWebsite = bannedWebsites.get(j);
                             String siteURL = bannedWebsite.getSiteUrl();
