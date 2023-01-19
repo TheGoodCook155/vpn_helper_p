@@ -292,6 +292,10 @@ public class Main {
                                 break;
                             }
 
+                            if (stopLoop[0] == true){
+                                break;
+                            }
+
                             BannedWebsite bannedWebsite = bannedWebsites.get(j);
                             String siteURL = bannedWebsite.getSiteUrl();
 
@@ -492,6 +496,7 @@ public class Main {
         Scanner saveDataScanner = new Scanner(System.in);
         SaveCurrentIndex saveCurrentIndexObj = new SaveCurrentIndex();
         Thread mainThread = Thread.currentThread();
+
         boolean listenerStarted = appShutdownListener.getAppShutdownListenerInstance().isHookIsRunning();
         final boolean[] stopLoop = {false};
 
@@ -709,6 +714,7 @@ public class Main {
 
     }
 
+
     /**
      *
      * @param site Website URL
@@ -791,11 +797,206 @@ public class Main {
 
     }
 
+    private static void checkSiteResolves() throws Exception {
+        Scanner scanner = new Scanner(System.in);
+        String command = "";
+        boolean localRun = true;
+
+
+        while (localRun){
+
+
+            System.out.println("\nPick an option: ");
+
+            System.out.println("1. Check single website: ");
+            System.out.println("2. Check all websites: ");
+            System.out.println("3. Go back <-");
+
+            command = scanner.nextLine();
+
+            switch (command){
+
+                case "1":
+                    checkSiteResolvesSingleWebsite();
+                    break;
+                case "2":
+                    checkSiteResolvesAllWebsites(serverParser,sitesParser);
+                    break;
+                case "3":
+                    localRun = false;
+                    break;
+                default:
+                    System.out.println("Invalid entry\n");
+            }
+        }
+    }
+
+    private static void checkSiteResolvesAllWebsites(ServerParser serverParser,SitesParser sitesParser) throws IOException {
+
+        String localDir = System.getProperty("user.dir");
+        Path dirPath = Paths.get(localDir + "/output/");
+
+        logger.logThis().info("checkSiteResolvesAllWebsites | dirPath: " + dirPath.toAbsolutePath());
+
+        BufferedWriter writer = new BufferedWriter(new FileWriter(dirPath.toAbsolutePath()+ "/"+"dnsResolveAllServers.txt"));
+
+        List<ServerObj> servers = serverParser.getListOfServers();
+        List<BannedWebsite> websites = sitesParser.getAllWebsites();
+
+        AppShutdownListener shutdownListener = AppShutdownListener.getAppShutdownListenerInstance();
+        SaveCurrentIndex saveCurrentIndex = new SaveCurrentIndex();
+
+        Scanner saveDataScanner = new Scanner(System.in);
+
+        Thread mainThread = Thread.currentThread();
+
+        mainThread.setName("Main thread");
+
+        int startingIndex = 0;
+        final boolean[] localRun = {true};
+
+
+        boolean listenerStarted = appShutdownListener.getAppShutdownListenerInstance().isHookIsRunning();
+        final boolean[] stopLoop = {false};
+
+        startingIndex = loadSavedIndex();
+
+        //iterate over servers
+
+
+        while (localRun[0]){
+
+            synchronized (saveCurrentIndex){
+
+                for (int i = startingIndex; i < servers.size(); i++){
+
+                    ServerObj serverObj = servers.get(i);
+
+                    if (stopLoop[0] == true){
+                        break;
+                    }
+
+                    saveCurrentIndex.setIndex(i);
+
+                    boolean isConnected = connectAndCheckIfServerIsConnected(serverObj);
+
+                    if (isConnected){
+                        //check each site
+
+                        writer.write("=====================================================\n");
+                        writer.write("Checking server: " + serverObj.getServerName() + "\n");
+
+                        for (int j = 0; j < websites.size(); j++){
+
+                            String websiteURL = websites.get(j).getSiteUrl();
+
+                            if (stopLoop[0] == true){
+                                break;
+                            }
+
+                            String cloudFlareDNS = "1.1.1.1";
+                            String googlesDNS = "8.8.8.8";
+                            //custom DNS
+
+                            //Cloudflare
+                            String commandCloudFlare = "nslookup " + websiteURL + " " + cloudFlareDNS;
+                            Process outputCloudFlare = runtime.exec(commandCloudFlare);
+                            runtimeParser = new RuntimeParser(outputCloudFlare);
+                            String loggedOutputCloudFlare = runtimeParser.parseOutput();
+                            System.out.println("======================================");
+
+
+                            //Google
+                            String commandGoogle = "nslookup " + websiteURL + " " + googlesDNS;
+                            Process outputGoogle = runtime.exec(commandGoogle);
+                            runtimeParser = new RuntimeParser(outputGoogle);
+                            String loggedOutputGoogle = runtimeParser.parseOutput();
+                            System.out.println("======================================");
+
+                            //PVPN DNS
+                            String command = "nslookup " + websiteURL;
+                            Process output = runtime.exec(command);
+                            runtimeParser = new RuntimeParser(output);
+                            String loggedOutputPVPN = runtimeParser.parseOutput();
+                            System.out.println("======================================");
+
+                            writer.write("===========================\n");
+                            writer.write(websiteURL+"\n");
+                            writer.write("Cloudflare: \n");
+                            writer.write(loggedOutputCloudFlare + "\n");
+                            writer.write("Google: \n");
+                            writer.write(loggedOutputGoogle + "\n");
+                            writer.write("PVPN: \n");
+                            writer.write(loggedOutputPVPN + "\n");
+                            writer.write("===========================\n");
+//                            disconnectVPN(runtimeParser);
+
+//                            localRun[0] = false;
+                        }
+
+                        writer.write("=====================================================\n");
+
+                    }
+
+                    if (listenerStarted == false){
+                        appShutdownListener.setHookIsRunning(true);
+                        listenerStarted = true;
+
+                        Thread terminateThread = new Thread() {
+                            public void run() {
+                                stopLoop[0] = true;
+
+                                this.setName("Second Thread");
+
+                                try {
+
+                                    Thread.sleep(1000);
+
+                                }catch (InterruptedException e){
+                                    e.printStackTrace();
+                                    logger.logThis().info("checkSiteResolvesAllWebsites() | Second thread started | InterruptedException:");
+                                }
+                                System.out.println("\n\nShutting down... Save index: y/n?\n");
+
+                                String command = saveDataScanner.nextLine();
+                                if (command.equals("y")){
+                                    saveCurrentIndex.saveIndex(saveCurrentIndex);
+                                    System.out.println("\nLast saved index: " + saveCurrentIndex.getIndex());
+                                }else{
+                                    System.out.println("Not saved: ");
+                                }
+                                logger.logThis().info("checkSiteResolvesAllWebsites() | Second thread started | Saved index: " + saveCurrentIndex.getIndex());
+
+
+                                logger.logThis().info("checkSiteResolvesAllWebsites() | Second thread started | localRun: "  + " About to kill main thread");
+
+                                mainThread.stop();
+                            }
+                        };
+
+                        try {
+
+                            terminateThread.join();
+
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                        Runtime.getRuntime().addShutdownHook(terminateThread);
+                    }
+
+                }
+
+            }
+
+        }
+
+    }
+
     /**
      * Checks if site resolves when connected to a server. Reference Cloudflare/Google DNS/s
      * @throws Exception
      */
-    private static void checkSiteResolves() throws Exception {
+    private static void checkSiteResolvesSingleWebsite() throws Exception {
 
         boolean localRun = true;
         Scanner scanner = new Scanner(System.in);
